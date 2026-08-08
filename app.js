@@ -1,9 +1,9 @@
-const express = require('express');     # Import the Express module
-const app = express();                  #   Create an instance of the Express application
+const express = require('express');
+const app = express();          
 app.get('/', (req, res) => {
-  res.send('Hello World from Node.js CI/CD Demo!'); # Send a response when the root URL is accessed
+  res.send('Hello World from Node.js CI/CD Demo!');
 });
-const PORT = process.env.PORT || 3000; # Start the server and listen on the specified port
+const PORT = process.env.PORT || 3000; 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`); # Log a message indicating that the server is running    
+  console.log(`Server is running on port ${PORT}`);  
 });
