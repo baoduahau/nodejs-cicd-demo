@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();          
 app.get('/', (req, res) => {
-  res.send('Hello World from Node.js CI/CD Demo!');
+  res.send('Hello Bao - CI/CD tu dong tren AWS EKS!');
 });
 const PORT = process.env.PORT || 3000; 
 app.listen(PORT, () => {
