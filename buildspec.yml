@@ -2,36 +2,42 @@ version: 0.2
 
 env:
   variables:
-    CLUSTER_NAME: "my-eks-cluster"
+    CLUSTER_NAME: "bao-eks-lab-cluster"
     AWS_REGION: "ap-southeast-1"
-    ECR_REPO: "nodejs-cicd-demo"
+    ECR_REPO: "bao-nodejs-cicd-demo"
+    K8S_NAMESPACE: "bao-cicd-lab"
+    DEPLOYMENT_NAME: "bao-nodejs-cicd-demo"
 
 phases:
   install:
     commands:
-      - curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.29.0/2024-01-04/bin/linux/amd64/kubectl
-      - chmod +x ./kubectl && mv ./kubectl /usr/local/bin
+      - curl -sSLo /tmp/kubectl https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl
+      - chmod +x /tmp/kubectl
+      - mv /tmp/kubectl /usr/local/bin/kubectl
+      - kubectl version --client
 
   pre_build:
     commands:
-      - echo "Đăng nhập vào Amazon ECR..."
-      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - REPO_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO
       - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo "Login Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
   build:
     commands:
-      - echo "Build Docker image..."
+      - echo "Build Docker image $IMAGE_TAG..."
       - docker build -t $REPO_URI:$IMAGE_TAG -t $REPO_URI:latest .
 
   post_build:
     commands:
-      - echo "Push image lên ECR..."
+      - echo "Push image to ECR..."
       - docker push $REPO_URI:$IMAGE_TAG
       - docker push $REPO_URI:latest
-      - echo "Cập nhật kubeconfig..."
+      - echo "Connect to EKS..."
       - aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
-      - echo "Deploy lên EKS..."
-      - sed -i "s|<ECR_REPO_URI>|$REPO_URI|g" k8s/deployment.yaml
-      - kubectl set image deployment/nodejs-cicd-demo nodejs-cicd-demo=$REPO_URI:$IMAGE_TAG --record || kubectl apply -f k8s/deployment.yaml
-      - kubectl rollout status deployment/nodejs-cicd-demo
+      - echo "Deploy application..."
+      - sed "s|IMAGE_URI_PLACEHOLDER|$REPO_URI:$IMAGE_TAG|g" k8s/deployment.yaml > /tmp/deployment.yaml
+      - kubectl apply -f /tmp/deployment.yaml
+      - kubectl rollout status deployment/$DEPLOYMENT_NAME -n $K8S_NAMESPACE --timeout=5m
+      - kubectl get pods,svc -n $K8S_NAMESPACE
