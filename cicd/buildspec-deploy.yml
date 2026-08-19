@@ -10,8 +10,15 @@ phases:
 
   pre_build:
     commands:
+      - echo "[CD] Load image.env"
+      - test -f image.env
       - . image.env
       - test -n "$IMAGE_URI"
+      - test -n "$CLUSTER_NAME"
+      - test -n "$TARGET_NAMESPACE"
+      - test -n "$DEPLOYMENT_NAME"
+      - test -n "$SERVICE_NAME"
+      - test -n "$SERVICE_TYPE"
       - aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
       - kubectl get namespace "$TARGET_NAMESPACE"
       - |
