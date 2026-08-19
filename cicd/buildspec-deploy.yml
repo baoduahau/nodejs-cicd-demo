@@ -7,9 +7,10 @@ phases:
       - curl -fsSLo /tmp/kubectl https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl
       - chmod +x /tmp/kubectl
       - mv /tmp/kubectl /usr/local/bin/kubectl
+
   pre_build:
     commands:
-      - source image.env
+      - . image.env
       - test -n "$IMAGE_URI"
       - aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
       - kubectl get namespace "$TARGET_NAMESPACE"
@@ -20,50 +21,107 @@ phases:
           -e "s|__SERVICE_TYPE__|$SERVICE_TYPE|g" \
           k8s/app-template.yaml > /tmp/app-rendered.yaml
       - kubectl apply --dry-run=client -f /tmp/app-rendered.yaml
+
   build:
     commands:
-      - set -Eeuo pipefail
-      - echo "[CD] Deploy $IMAGE_URI vao namespace $TARGET_NAMESPACE"
       - |
+        bash -Eeuo pipefail <<'BASH'
+        echo "[CD] Deploy $IMAGE_URI vao namespace $TARGET_NAMESPACE"
+
         rollback_or_cleanup() {
           echo "[ROLLBACK] Khoi phuc phien ban tot gan nhat"
+
           if [[ "$DEPLOYMENT_EXISTED" == "true" ]]; then
-            kubectl rollout undo deployment/$DEPLOYMENT_NAME -n "$TARGET_NAMESPACE"
-            kubectl rollout status deployment/$DEPLOYMENT_NAME -n "$TARGET_NAMESPACE" --timeout=5m || true
+            kubectl rollout undo \
+              "deployment/$DEPLOYMENT_NAME" \
+              -n "$TARGET_NAMESPACE"
+
+            kubectl rollout status \
+              "deployment/$DEPLOYMENT_NAME" \
+              -n "$TARGET_NAMESPACE" \
+              --timeout=5m || true
           else
-            kubectl delete deployment "$DEPLOYMENT_NAME" -n "$TARGET_NAMESPACE" --ignore-not-found
-            kubectl delete service "$SERVICE_NAME" -n "$TARGET_NAMESPACE" --ignore-not-found
+            kubectl delete deployment \
+              "$DEPLOYMENT_NAME" \
+              -n "$TARGET_NAMESPACE" \
+              --ignore-not-found
+
+            kubectl delete service \
+              "$SERVICE_NAME" \
+              -n "$TARGET_NAMESPACE" \
+              --ignore-not-found
           fi
         }
 
-        if kubectl get deployment "$DEPLOYMENT_NAME" -n "$TARGET_NAMESPACE" >/dev/null 2>&1; then
+        if kubectl get deployment \
+          "$DEPLOYMENT_NAME" \
+          -n "$TARGET_NAMESPACE" >/dev/null 2>&1
+        then
           DEPLOYMENT_EXISTED=true
         else
           DEPLOYMENT_EXISTED=false
         fi
 
         kubectl apply -f /tmp/app-rendered.yaml
-        if ! kubectl rollout status deployment/$DEPLOYMENT_NAME -n "$TARGET_NAMESPACE" --timeout=5m; then
+
+        if ! kubectl rollout status \
+          "deployment/$DEPLOYMENT_NAME" \
+          -n "$TARGET_NAMESPACE" \
+          --timeout=5m
+        then
           rollback_or_cleanup
           exit 1
         fi
 
         echo "[HEALTH] Kiem tra Service tu ben trong cluster"
-        HEALTH_POD="bao-health-${CODEBUILD_BUILD_NUMBER:-manual}"
-        kubectl delete pod "$HEALTH_POD" -n "$TARGET_NAMESPACE" --ignore-not-found --wait=false
-        kubectl run "$HEALTH_POD" -n "$TARGET_NAMESPACE" \
-          --image=curlimages/curl:8.10.1 --restart=Never \
-          --command -- sh -c "for i in \$(seq 1 18); do curl -fsS http://$SERVICE_NAME/healthz && exit 0; sleep 5; done; exit 1"
 
-        if ! kubectl wait pod/$HEALTH_POD -n "$TARGET_NAMESPACE" \
-          --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s; then
-          kubectl logs "$HEALTH_POD" -n "$TARGET_NAMESPACE" || true
-          kubectl delete pod "$HEALTH_POD" -n "$TARGET_NAMESPACE" --ignore-not-found --wait=false
+        HEALTH_POD="bao-health-${CODEBUILD_BUILD_NUMBER:-manual}"
+
+        kubectl delete pod "$HEALTH_POD" \
+          -n "$TARGET_NAMESPACE" \
+          --ignore-not-found \
+          --wait=false
+
+        kubectl run "$HEALTH_POD" \
+          -n "$TARGET_NAMESPACE" \
+          --image=curlimages/curl:8.10.1 \
+          --restart=Never \
+          --command -- sh -c \
+          "for i in \$(seq 1 18); do
+             curl -fsS http://$SERVICE_NAME/healthz && exit 0
+             sleep 5
+           done
+           exit 1"
+
+        if ! kubectl wait \
+          "pod/$HEALTH_POD" \
+          -n "$TARGET_NAMESPACE" \
+          --for=jsonpath='{.status.phase}'=Succeeded \
+          --timeout=120s
+        then
+          kubectl logs "$HEALTH_POD" \
+            -n "$TARGET_NAMESPACE" || true
+
+          kubectl delete pod "$HEALTH_POD" \
+            -n "$TARGET_NAMESPACE" \
+            --ignore-not-found \
+            --wait=false
+
           rollback_or_cleanup
           exit 1
         fi
 
-        kubectl logs "$HEALTH_POD" -n "$TARGET_NAMESPACE"
-        kubectl delete pod "$HEALTH_POD" -n "$TARGET_NAMESPACE" --ignore-not-found --wait=false
-        kubectl get deployment,pods,service -n "$TARGET_NAMESPACE" -o wide
+        kubectl logs "$HEALTH_POD" \
+          -n "$TARGET_NAMESPACE"
+
+        kubectl delete pod "$HEALTH_POD" \
+          -n "$TARGET_NAMESPACE" \
+          --ignore-not-found \
+          --wait=false
+
+        kubectl get deployment,pods,service \
+          -n "$TARGET_NAMESPACE" \
+          -o wide
+
         echo "[OK] Deploy va health check thanh cong tai $TARGET_NAMESPACE"
+        BASH
