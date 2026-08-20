@@ -10,7 +10,7 @@ app.get('/', (_req, res) => {
 // Pipeline goi endpoint nay sau moi lan deploy.
 // HTTP 200 = phien ban moi duoc phep tiep tuc.
 app.get('/healthz', (_req, res) => {
-  res.status(200).send('ok');
+  res.status(500).send('demo health failure');
 });
 
 app.listen(port, '0.0.0.0', () => {
